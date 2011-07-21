@@ -33,16 +33,20 @@ describe RedisAutocomplete do
       Catlee
       Catlin
     ].freeze
-    @set = :test_female_names
+    @namespace = :test_female_names
+  end
+
+  def build_autocomplete(options = {})
+    ra = RedisAutocomplete.new({:namespace => @namespace}.merge(options))
+    ra.reset!
+    ra.add_words(@names)
+    ra
   end
 
   context "with default case sensitivity" do
     before do
-      @r = RedisAutocomplete.new(:set_name => @set)
-      @r.reset!
-      @r.add_words(@names)
+      @r = build_autocomplete
     end
-
     describe "#suggest" do
       it "should include words matching prefix" do
         @r.suggest('C').should == %w[
@@ -94,17 +98,19 @@ describe RedisAutocomplete do
         end
       
         it "should remove unique word stems" do
-          @r.redis.zrank(@set, 'Catherine').should be_nil
-          @r.redis.zrank(@set, 'Catheri').should == nil
-          @r.redis.zrank(@set, 'Cather').should == nil
-          @r.redis.zrank(@set, 'Cathe').should == nil
-          @r.redis.zrank(@set, 'Cath').should_not == nil
+          @r.include_prefix?('Catherine').should be_false
+          @r.include_prefix?('Catheri').should be_false
+          @r.include_prefix?('Cather').should be_false
+          @r.include_prefix?('Cathe').should be_false
+
+          # 'Cath' is also a prefix for 'Cathy'
+          @r.include_prefix?('Cath').should be_true
         end
       end
       
       context "when remove_stems is false" do
         before do
-          @r.remove_word('Catherine', nil, false).should be_true
+          @r.remove_word('Catherine', false).should be_true
         end
 
         it "should not include word after removing it" do
@@ -112,12 +118,12 @@ describe RedisAutocomplete do
         end
 
         it "should remove unique word stems" do
-          @r.redis.zrank(@set, 'Catherine+').should be_nil
-          @r.redis.zrank(@set, 'Catherine').should_not be_nil
-          @r.redis.zrank(@set, 'Catheri').should_not be_nil
-          @r.redis.zrank(@set, 'Cather').should_not be_nil
-          @r.redis.zrank(@set, 'Cathe').should_not be_nil
-          @r.redis.zrank(@set, 'Cath').should_not be_nil
+          @r.include_word?('Catherine').should be_false
+          @r.include_prefix?('Catherine').should be_false
+          @r.include_prefix?('Catheri').should be_false
+          @r.include_prefix?('Cather').should be_false
+          @r.include_prefix?('Cathe').should be_false
+          @r.include_prefix?('Cath').should be_true
         end
       end
     end
@@ -125,24 +131,28 @@ describe RedisAutocomplete do
 
   context "with :case_sensitive => false" do
     before do
-      @r = RedisAutocomplete.new(:set_name => @set, :case_sensitive => false)
-      @r.reset!
-      @r.add_words(@names)
+      @r = build_autocomplete(:case_sensitive => false)
     end
 
     describe "#suggest" do
       it "should include words matching prefix" do
-        @r.suggest('c').should == %w[
-          catherine
-          cathi
+        @r.suggest('c',20).should == %w[
+          Catherine
+          Cathi
           cathie
           cathleen
           cathlene
-          cathrin
-          cathrine
-          cathryn
-          cathy
-          cathyleen
+          Cathrin
+          Cathrine
+          Cathryn
+          Cathy
+          Cathyleen
+          Cati
+          Catie
+          Catina
+          Catlaina
+          Catlee
+          Catlin
         ]
       end
 
@@ -169,13 +179,34 @@ describe RedisAutocomplete do
   # all other tests depend on reset! working.
   describe '#reset!' do
     before do
-      @r = RedisAutocomplete.new(:set_name => @set)
+      @r = RedisAutocomplete.new(:namespace => @namespace)
     end
     it "should clear all autocomplete data" do
       @r.add_word("SUP")
       @r.suggest("S").should == %w{SUP}
       @r.reset!
       @r.suggest("S").should be_empty
+    end
+  end
+
+  context "when storing complex objects" do
+    before do
+      @r = RedisAutocomplete.new(:namespace => @namespace)
+      @r.reset!
+    end
+    it "should handle hashes" do
+      value = { :site_id => 10 }
+      @r.add_word("foo",value).should be_true
+      @r.suggest("f").should == [ value ]
+    end
+
+    it "should update objects" do
+      value = { :site_id => 10 }
+      @r.add_word("foo",value).should be_true
+
+      value = { :site_id => 15 }
+      @r.add_word("foo",value).should be_false
+      @r.suggest("f").should == [ value ]
     end
   end
 end
