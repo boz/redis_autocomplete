@@ -32,14 +32,14 @@ describe RedisAutocomplete do
       Catlaina
       Catlee
       Catlin
-    ]
+    ].freeze
     @set = :test_female_names
   end
 
   context "with default case sensitivity" do
     before do
       @r = RedisAutocomplete.new(:set_name => @set)
-      @r.redis.zremrangebyscore(@set, 0, 0)
+      @r.reset!
       @r.add_words(@names)
     end
 
@@ -57,6 +57,10 @@ describe RedisAutocomplete do
           Catie
           Catina
         ]
+      end
+
+      it "should not ignore case" do
+        @r.suggest('c').select { |x| x.capitalize == x }.should be_empty
       end
 
       it "should not include words not matching prefix" do
@@ -100,7 +104,7 @@ describe RedisAutocomplete do
       
       context "when remove_stems is false" do
         before do
-          @r.remove_word('Catherine', nil, false)
+          @r.remove_word('Catherine', nil, false).should be_true
         end
 
         it "should not include word after removing it" do
@@ -122,7 +126,7 @@ describe RedisAutocomplete do
   context "with :case_sensitive => false" do
     before do
       @r = RedisAutocomplete.new(:set_name => @set, :case_sensitive => false)
-      @r.redis.zremrangebyscore(@set, 0, 0)
+      @r.reset!
       @r.add_words(@names)
     end
 
@@ -142,6 +146,10 @@ describe RedisAutocomplete do
         ]
       end
 
+      it "should ignore case" do
+        @r.suggest('c').should == @r.suggest('C')
+      end
+
       it "should not include words not matching prefix" do
         @r.suggest('cati').should_not include('cathy')
       end
@@ -155,6 +163,19 @@ describe RedisAutocomplete do
           @r.suggest('c', 4).length.should == 4
         end
       end
+    end
+  end
+
+  # all other tests depend on reset! working.
+  describe '#reset!' do
+    before do
+      @r = RedisAutocomplete.new(:set_name => @set)
+    end
+    it "should clear all autocomplete data" do
+      @r.add_word("SUP")
+      @r.suggest("S").should == %w{SUP}
+      @r.reset!
+      @r.suggest("S").should be_empty
     end
   end
 end
